@@ -120,6 +120,7 @@ BuildRequires:  libmysofa-devel
 %endif
 BuildRequires:  nasm
 BuildRequires:  pkg-config
+BuildRequires:  perl
 %ifarch x86_64 %x86_64
 %if 0%{?suse_version} >= 1550
 BuildRequires:  pkgconfig(SvtAv1Enc) >= 0.9.0
