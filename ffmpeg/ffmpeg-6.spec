@@ -566,7 +566,7 @@ LDFLAGS="%_lto_cflags" \
 	--enable-vulkan \
 	--enable-libplacebo \
 %endif
-%if %{with amf}
+%if %{with amf_sdk}
 	--enable-amf \
 %endif
 %if !%{with cuda_sdk}
