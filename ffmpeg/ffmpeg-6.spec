@@ -47,7 +47,7 @@
 # -codecs` rather than the success/failure status of libav* initialization.
 # This becomes a problem when a format only has a HW driver;
 # the browser thinks it can do H264 but never succeeds.
-%bcond_with    amf_sdk
+%bcond_without amf_sdk
 %bcond_with    cuda_sdk
 %bcond_with    amrwb
 %bcond_with    fdk_aac_dlopen
