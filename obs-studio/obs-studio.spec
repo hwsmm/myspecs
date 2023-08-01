@@ -93,7 +93,7 @@ BuildRequires:  speexdsp-devel
 %endif
 BuildRequires:  sndio-devel
 BuildRequires:  swig
-BuildRequires:  vlc-devel
+BuildRequires:  pkgconfig(libvlc)
 %if %{with cef}
 BuildRequires:  mozilla-nss
 BuildRequires:  mozilla-nspr
