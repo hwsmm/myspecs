@@ -1,0 +1,579 @@
+From de0dd29322328c003944905c89b7da6401159fb5 Mon Sep 17 00:00:00 2001
+From: Kurt Kartaltepe <kkartaltepe@gmail.com>
+Date: Wed, 29 Mar 2023 10:20:22 +0200
+Subject: [PATCH 3/5] libobs,libobs-opengl: enable gpu encoding for opengl
+
+Enable all of the previously windows only paths for opengl backends that
+support encode_texture2
+---
+ libobs-opengl/gl-subsystem.c        |  12 +++
+ libobs/graphics/graphics-imports.c  |   4 +-
+ libobs/graphics/graphics-internal.h |  20 ++--
+ libobs/graphics/graphics.c          | 156 ++++++++++++++--------------
+ libobs/graphics/graphics.h          |  13 ++-
+ libobs/obs-encoder.h                |   3 +
+ libobs/obs-internal.h               |   2 +-
+ libobs/obs-video-gpu-encode.c       |  23 ++--
+ libobs/obs-video.c                  |  22 ++--
+ libobs/obs.c                        |   6 --
+ 10 files changed, 135 insertions(+), 126 deletions(-)
+
+diff --git a/libobs-opengl/gl-subsystem.c b/libobs-opengl/gl-subsystem.c
+index 0cdd46d..8499af2 100644
+--- a/libobs-opengl/gl-subsystem.c
++++ b/libobs-opengl/gl-subsystem.c
+@@ -1519,6 +1519,18 @@ void gs_swapchain_destroy(gs_swapchain_t *swapchain)
+ 	bfree(swapchain);
+ }
+ 
++bool device_nv12_available(gs_device_t *device)
++{
++	UNUSED_PARAMETER(device);
++	return true; // always a split R8,R8G8 texture.
++}
++
++bool device_p010_available(gs_device_t *device)
++{
++	UNUSED_PARAMETER(device);
++	return true; // always a split R16,R16G16 texture.
++}
++
+ uint32_t gs_voltexture_get_width(const gs_texture_t *voltex)
+ {
+ 	/* TODO */
+diff --git a/libobs/graphics/graphics-imports.c b/libobs/graphics/graphics-imports.c
+index d6eaccc..8de5beb 100644
+--- a/libobs/graphics/graphics-imports.c
++++ b/libobs/graphics/graphics-imports.c
+@@ -195,6 +195,8 @@ bool load_graphics_imports(struct gs_exports *exports, void *module,
+ 
+ 	GRAPHICS_IMPORT_OPTIONAL(device_nv12_available);
+ 	GRAPHICS_IMPORT_OPTIONAL(device_p010_available);
++	GRAPHICS_IMPORT_OPTIONAL(device_texture_create_nv12);
++	GRAPHICS_IMPORT_OPTIONAL(device_texture_create_p010);
+ 
+ 	GRAPHICS_IMPORT(device_is_monitor_hdr);
+ 
+@@ -230,8 +232,6 @@ bool load_graphics_imports(struct gs_exports *exports, void *module,
+ 	GRAPHICS_IMPORT_OPTIONAL(device_texture_wrap_obj);
+ 	GRAPHICS_IMPORT_OPTIONAL(device_texture_acquire_sync);
+ 	GRAPHICS_IMPORT_OPTIONAL(device_texture_release_sync);
+-	GRAPHICS_IMPORT_OPTIONAL(device_texture_create_nv12);
+-	GRAPHICS_IMPORT_OPTIONAL(device_texture_create_p010);
+ 	GRAPHICS_IMPORT_OPTIONAL(device_stagesurface_create_nv12);
+ 	GRAPHICS_IMPORT_OPTIONAL(device_stagesurface_create_p010);
+ 	GRAPHICS_IMPORT_OPTIONAL(device_register_loss_callbacks);
+diff --git a/libobs/graphics/graphics-internal.h b/libobs/graphics/graphics-internal.h
+index d0ae5b8..268ad36 100644
+--- a/libobs/graphics/graphics-internal.h
++++ b/libobs/graphics/graphics-internal.h
+@@ -273,6 +273,16 @@ struct gs_exports {
+ 
+ 	bool (*device_nv12_available)(gs_device_t *device);
+ 	bool (*device_p010_available)(gs_device_t *device);
++	bool (*device_texture_create_nv12)(gs_device_t *device,
++					   gs_texture_t **tex_y,
++					   gs_texture_t **tex_uv,
++					   uint32_t width, uint32_t height,
++					   uint32_t flags);
++	bool (*device_texture_create_p010)(gs_device_t *device,
++					   gs_texture_t **tex_y,
++					   gs_texture_t **tex_uv,
++					   uint32_t width, uint32_t height,
++					   uint32_t flags);
+ 
+ 	bool (*device_is_monitor_hdr)(gs_device_t *device, void *monitor);
+ 
+@@ -330,16 +340,6 @@ struct gs_exports {
+ 	int (*device_texture_acquire_sync)(gs_texture_t *tex, uint64_t key,
+ 					   uint32_t ms);
+ 	int (*device_texture_release_sync)(gs_texture_t *tex, uint64_t key);
+-	bool (*device_texture_create_nv12)(gs_device_t *device,
+-					   gs_texture_t **tex_y,
+-					   gs_texture_t **tex_uv,
+-					   uint32_t width, uint32_t height,
+-					   uint32_t flags);
+-	bool (*device_texture_create_p010)(gs_device_t *device,
+-					   gs_texture_t **tex_y,
+-					   gs_texture_t **tex_uv,
+-					   uint32_t width, uint32_t height,
+-					   uint32_t flags);
+ 
+ 	gs_stagesurf_t *(*device_stagesurface_create_nv12)(gs_device_t *device,
+ 							   uint32_t width,
+diff --git a/libobs/graphics/graphics.c b/libobs/graphics/graphics.c
+index 288fb1d..78a7fc2 100644
+--- a/libobs/graphics/graphics.c
++++ b/libobs/graphics/graphics.c
+@@ -2908,6 +2908,84 @@ void gs_debug_marker_end(void)
+ 		thread_graphics->device);
+ }
+ 
++bool gs_texture_create_nv12(gs_texture_t **tex_y, gs_texture_t **tex_uv,
++			    uint32_t width, uint32_t height, uint32_t flags)
++{
++	graphics_t *graphics = thread_graphics;
++	bool success = false;
++
++	if (!gs_valid("gs_texture_create_nv12"))
++		return false;
++
++	if ((width & 1) == 1 || (height & 1) == 1) {
++		blog(LOG_ERROR, "NV12 textures must have dimensions "
++				"divisible by 2.");
++		return false;
++	}
++
++	if (graphics->exports.device_texture_create_nv12) {
++		success = graphics->exports.device_texture_create_nv12(
++			graphics->device, tex_y, tex_uv, width, height, flags);
++		if (success)
++			return true;
++	}
++
++	*tex_y = gs_texture_create(width, height, GS_R8, 1, NULL, flags);
++	*tex_uv = gs_texture_create(width / 2, height / 2, GS_R8G8, 1, NULL,
++				    flags);
++
++	if (!*tex_y || !*tex_uv) {
++		if (*tex_y)
++			gs_texture_destroy(*tex_y);
++		if (*tex_uv)
++			gs_texture_destroy(*tex_uv);
++		*tex_y = NULL;
++		*tex_uv = NULL;
++		return false;
++	}
++
++	return true;
++}
++
++bool gs_texture_create_p010(gs_texture_t **tex_y, gs_texture_t **tex_uv,
++			    uint32_t width, uint32_t height, uint32_t flags)
++{
++	graphics_t *graphics = thread_graphics;
++	bool success = false;
++
++	if (!gs_valid("gs_texture_create_p010"))
++		return false;
++
++	if ((width & 1) == 1 || (height & 1) == 1) {
++		blog(LOG_ERROR, "P010 textures must have dimensions "
++				"divisible by 2.");
++		return false;
++	}
++
++	if (graphics->exports.device_texture_create_p010) {
++		success = graphics->exports.device_texture_create_p010(
++			graphics->device, tex_y, tex_uv, width, height, flags);
++		if (success)
++			return true;
++	}
++
++	*tex_y = gs_texture_create(width, height, GS_R16, 1, NULL, flags);
++	*tex_uv = gs_texture_create(width / 2, height / 2, GS_RG16, 1, NULL,
++				    flags);
++
++	if (!*tex_y || !*tex_uv) {
++		if (*tex_y)
++			gs_texture_destroy(*tex_y);
++		if (*tex_uv)
++			gs_texture_destroy(*tex_uv);
++		*tex_y = NULL;
++		*tex_uv = NULL;
++		return false;
++	}
++
++	return true;
++}
++
+ #ifdef __APPLE__
+ 
+ /** Platform specific functions */
+@@ -3175,84 +3253,6 @@ int gs_texture_release_sync(gs_texture_t *tex, uint64_t key)
+ 	return -1;
+ }
+ 
+-bool gs_texture_create_nv12(gs_texture_t **tex_y, gs_texture_t **tex_uv,
+-			    uint32_t width, uint32_t height, uint32_t flags)
+-{
+-	graphics_t *graphics = thread_graphics;
+-	bool success = false;
+-
+-	if (!gs_valid("gs_texture_create_nv12"))
+-		return false;
+-
+-	if ((width & 1) == 1 || (height & 1) == 1) {
+-		blog(LOG_ERROR, "NV12 textures must have dimensions "
+-				"divisible by 2.");
+-		return false;
+-	}
+-
+-	if (graphics->exports.device_texture_create_nv12) {
+-		success = graphics->exports.device_texture_create_nv12(
+-			graphics->device, tex_y, tex_uv, width, height, flags);
+-		if (success)
+-			return true;
+-	}
+-
+-	*tex_y = gs_texture_create(width, height, GS_R8, 1, NULL, flags);
+-	*tex_uv = gs_texture_create(width / 2, height / 2, GS_R8G8, 1, NULL,
+-				    flags);
+-
+-	if (!*tex_y || !*tex_uv) {
+-		if (*tex_y)
+-			gs_texture_destroy(*tex_y);
+-		if (*tex_uv)
+-			gs_texture_destroy(*tex_uv);
+-		*tex_y = NULL;
+-		*tex_uv = NULL;
+-		return false;
+-	}
+-
+-	return true;
+-}
+-
+-bool gs_texture_create_p010(gs_texture_t **tex_y, gs_texture_t **tex_uv,
+-			    uint32_t width, uint32_t height, uint32_t flags)
+-{
+-	graphics_t *graphics = thread_graphics;
+-	bool success = false;
+-
+-	if (!gs_valid("gs_texture_create_p010"))
+-		return false;
+-
+-	if ((width & 1) == 1 || (height & 1) == 1) {
+-		blog(LOG_ERROR, "P010 textures must have dimensions "
+-				"divisible by 2.");
+-		return false;
+-	}
+-
+-	if (graphics->exports.device_texture_create_p010) {
+-		success = graphics->exports.device_texture_create_p010(
+-			graphics->device, tex_y, tex_uv, width, height, flags);
+-		if (success)
+-			return true;
+-	}
+-
+-	*tex_y = gs_texture_create(width, height, GS_R16, 1, NULL, flags);
+-	*tex_uv = gs_texture_create(width / 2, height / 2, GS_RG16, 1, NULL,
+-				    flags);
+-
+-	if (!*tex_y || !*tex_uv) {
+-		if (*tex_y)
+-			gs_texture_destroy(*tex_y);
+-		if (*tex_uv)
+-			gs_texture_destroy(*tex_uv);
+-		*tex_y = NULL;
+-		*tex_uv = NULL;
+-		return false;
+-	}
+-
+-	return true;
+-}
+-
+ gs_stagesurf_t *gs_stagesurface_create_nv12(uint32_t width, uint32_t height)
+ {
+ 	graphics_t *graphics = thread_graphics;
+diff --git a/libobs/graphics/graphics.h b/libobs/graphics/graphics.h
+index 0f62d5b..ee17a65 100644
+--- a/libobs/graphics/graphics.h
++++ b/libobs/graphics/graphics.h
+@@ -857,6 +857,12 @@ EXPORT bool gs_timer_range_get_data(gs_timer_range_t *range, bool *disjoint,
+ 
+ EXPORT bool gs_nv12_available(void);
+ EXPORT bool gs_p010_available(void);
++EXPORT bool gs_texture_create_nv12(gs_texture_t **tex_y, gs_texture_t **tex_uv,
++				   uint32_t width, uint32_t height,
++				   uint32_t flags);
++EXPORT bool gs_texture_create_p010(gs_texture_t **tex_y, gs_texture_t **tex_uv,
++				   uint32_t width, uint32_t height,
++				   uint32_t flags);
+ 
+ EXPORT bool gs_is_monitor_hdr(void *monitor);
+ 
+@@ -955,13 +961,6 @@ EXPORT int gs_texture_acquire_sync(gs_texture_t *tex, uint64_t key,
+  */
+ EXPORT int gs_texture_release_sync(gs_texture_t *tex, uint64_t key);
+ 
+-EXPORT bool gs_texture_create_nv12(gs_texture_t **tex_y, gs_texture_t **tex_uv,
+-				   uint32_t width, uint32_t height,
+-				   uint32_t flags);
+-EXPORT bool gs_texture_create_p010(gs_texture_t **tex_y, gs_texture_t **tex_uv,
+-				   uint32_t width, uint32_t height,
+-				   uint32_t flags);
+-
+ EXPORT gs_stagesurf_t *gs_stagesurface_create_nv12(uint32_t width,
+ 						   uint32_t height);
+ EXPORT gs_stagesurf_t *gs_stagesurface_create_p010(uint32_t width,
+diff --git a/libobs/obs-encoder.h b/libobs/obs-encoder.h
+index 6e831af..c6184bf 100644
+--- a/libobs/obs-encoder.h
++++ b/libobs/obs-encoder.h
+@@ -29,6 +29,9 @@
+ extern "C" {
+ #endif
+ 
++struct obs_encoder;
++typedef struct obs_encoder obs_encoder_t;
++
+ #define OBS_ENCODER_CAP_DEPRECATED (1 << 0)
+ #define OBS_ENCODER_CAP_PASS_TEXTURE (1 << 1)
+ #define OBS_ENCODER_CAP_DYN_BITRATE (1 << 2)
+diff --git a/libobs/obs-internal.h b/libobs/obs-internal.h
+index 1ea555c..6e975d0 100644
+--- a/libobs/obs-internal.h
++++ b/libobs/obs-internal.h
+@@ -268,9 +268,9 @@ struct obs_core_video_mix {
+ 	gs_stagesurf_t *active_copy_surfaces[NUM_TEXTURES][NUM_CHANNELS];
+ 	gs_stagesurf_t *copy_surfaces[NUM_TEXTURES][NUM_CHANNELS];
+ 	gs_texture_t *convert_textures[NUM_CHANNELS];
++	gs_texture_t *convert_textures_encode[NUM_CHANNELS];
+ #ifdef _WIN32
+ 	gs_stagesurf_t *copy_surfaces_encode[NUM_TEXTURES];
+-	gs_texture_t *convert_textures_encode[NUM_CHANNELS];
+ #endif
+ 	gs_texture_t *render_texture;
+ 	gs_texture_t *output_texture;
+diff --git a/libobs/obs-video-gpu-encode.c b/libobs/obs-video-gpu-encode.c
+index 0dfb11d..0d65a6d 100644
+--- a/libobs/obs-video-gpu-encode.c
++++ b/libobs/obs-video-gpu-encode.c
+@@ -17,8 +17,11 @@
+ 
+ #include "obs-internal.h"
+ 
+-static void *gpu_encode_thread(struct obs_core_video_mix *video)
++#define NBSP "\xC2\xA0"
++static const char *gpu_encode_frame_name = "gpu_encode_frame";
++static void *gpu_encode_thread(void *data)
+ {
++	struct obs_core_video_mix *video = data;
+ 	uint64_t interval = video_output_get_frame_time(video->video);
+ 	DARRAY(obs_encoder_t *) encoders;
+ 	int wait_frames = NUM_ENCODE_TEXTURE_FRAMES_TO_WAIT;
+@@ -26,6 +29,10 @@ static void *gpu_encode_thread(struct obs_core_video_mix *video)
+ 	da_init(encoders);
+ 
+ 	os_set_thread_name("obs gpu encode thread");
++	const char *gpu_encode_thread_name = profile_store_name(
++		obs_get_profiler_name_store(),
++		"obs_gpu_encode_thread(%g" NBSP "ms)", interval / 1000000.);
++	profile_register_root(gpu_encode_thread_name, interval);
+ 
+ 	while (os_sem_wait(video->gpu_encode_semaphore) == 0) {
+ 		struct obs_tex_frame tf;
+@@ -42,6 +49,8 @@ static void *gpu_encode_thread(struct obs_core_video_mix *video)
+ 			continue;
+ 		}
+ 
++		profile_start(gpu_encode_thread_name);
++
+ 		os_event_reset(video->gpu_encode_inactive);
+ 
+ 		/* -------------- */
+@@ -141,6 +150,9 @@ static void *gpu_encode_thread(struct obs_core_video_mix *video)
+ 			obs_encoder_release(encoders.array[i]);
+ 
+ 		da_resize(encoders, 0);
++
++		profile_end(gpu_encode_thread_name);
++		profile_reenable_thread();
+ 	}
+ 
+ 	da_free(encoders);
+@@ -149,7 +161,6 @@ static void *gpu_encode_thread(struct obs_core_video_mix *video)
+ 
+ bool init_gpu_encoding(struct obs_core_video_mix *video)
+ {
+-#ifdef _WIN32
+ 	const struct video_output_info *info =
+ 		video_output_get_info(video->video);
+ 
+@@ -173,7 +184,11 @@ bool init_gpu_encoding(struct obs_core_video_mix *video)
+ 			return false;
+ 		}
+ 
++#ifdef _WIN32
+ 		uint32_t handle = gs_texture_get_shared_handle(tex);
++#else
++		uint32_t handle = (uint32_t)-1;
++#endif
+ 
+ 		struct obs_tex_frame frame = {
+ 			.tex = tex, .tex_uv = tex_uv, .handle = handle};
+@@ -195,10 +210,6 @@ bool init_gpu_encoding(struct obs_core_video_mix *video)
+ 
+ 	video->gpu_encode_thread_initialized = true;
+ 	return true;
+-#else
+-	UNUSED_PARAMETER(video);
+-	return false;
+-#endif
+ }
+ 
+ void stop_gpu_encoding_thread(struct obs_core_video_mix *video)
+diff --git a/libobs/obs-video.c b/libobs/obs-video.c
+index 60acaaf..8918b86 100644
+--- a/libobs/obs-video.c
++++ b/libobs/obs-video.c
+@@ -427,7 +427,6 @@ stage_output_texture(struct obs_core_video_mix *video, int cur_texture,
+ 	profile_end(stage_output_texture_name);
+ }
+ 
+-#ifdef _WIN32
+ static inline bool queue_frame(struct obs_core_video_mix *video,
+ 			       bool raw_active,
+ 			       struct obs_vframe_info *vframe_info)
+@@ -455,7 +454,9 @@ static inline bool queue_frame(struct obs_core_video_mix *video,
+ 	circlebuf_pop_front(&video->gpu_encoder_avail_queue, &tf, sizeof(tf));
+ 
+ 	if (tf.released) {
++#ifdef _WIN32
+ 		gs_texture_acquire_sync(tf.tex, tf.lock_key, GS_WAIT_INFINITE);
++#endif
+ 		tf.released = false;
+ 	}
+ 
+@@ -479,8 +480,10 @@ static inline bool queue_frame(struct obs_core_video_mix *video,
+ 	tf.count = 1;
+ 	tf.timestamp = vframe_info->timestamp;
+ 	tf.released = true;
++#ifdef _WIN32
+ 	tf.handle = gs_texture_get_shared_handle(tf.tex);
+ 	gs_texture_release_sync(tf.tex, ++tf.lock_key);
++#endif
+ 	circlebuf_push_back(&video->gpu_encoder_queue, &tf, sizeof(tf));
+ 
+ 	os_sem_post(video->gpu_encode_semaphore);
+@@ -520,7 +523,6 @@ static void output_gpu_encoders(struct obs_core_video_mix *video,
+ end:
+ 	profile_end(output_gpu_encoders_name);
+ }
+-#endif
+ 
+ static inline void render_video(struct obs_core_video_mix *video,
+ 				bool raw_active, const bool gpu_active,
+@@ -540,26 +542,24 @@ static inline void render_video(struct obs_core_video_mix *video,
+ 		size_t channel_count = NUM_CHANNELS;
+ 		gs_texture_t *output_texture = render_output_texture(video);
+ 
+-#ifdef _WIN32
+ 		if (gpu_active) {
+ 			convert_textures = video->convert_textures_encode;
++#ifdef _WIN32
+ 			copy_surfaces = video->copy_surfaces_encode;
+ 			channel_count = 1;
++#endif
+ 			gs_flush();
+ 		}
+-#endif
+ 
+ 		if (video->gpu_conversion) {
+ 			render_convert_texture(video, convert_textures,
+ 					       output_texture);
+ 		}
+ 
+-#ifdef _WIN32
+ 		if (gpu_active) {
+ 			gs_flush();
+ 			output_gpu_encoders(video, raw_active);
+ 		}
+-#endif
+ 
+ 		if (raw_active) {
+ 			stage_output_texture(video, cur_texture,
+@@ -963,12 +963,10 @@ static void clear_raw_frame_data(struct obs_core_video_mix *video)
+ 	circlebuf_free(&video->vframe_info_buffer);
+ }
+ 
+-#ifdef _WIN32
+ static void clear_gpu_frame_data(struct obs_core_video_mix *video)
+ {
+ 	circlebuf_free(&video->vframe_info_buffer_gpu);
+ }
+-#endif
+ 
+ extern THREAD_LOCAL bool is_graphics_thread;
+ 
+@@ -1076,30 +1074,22 @@ static const char *output_frame_name = "output_frame";
+ static inline void update_active_state(struct obs_core_video_mix *video)
+ {
+ 	const bool raw_was_active = video->raw_was_active;
+-#ifdef _WIN32
+ 	const bool gpu_was_active = video->gpu_was_active;
+-#endif
+ 	const bool was_active = video->was_active;
+ 
+ 	bool raw_active = os_atomic_load_long(&video->raw_active) > 0;
+-#ifdef _WIN32
+ 	const bool gpu_active =
+ 		os_atomic_load_long(&video->gpu_encoder_active) > 0;
+ 	const bool active = raw_active || gpu_active;
+-#else
+-	const bool active = raw_active;
+-#endif
+ 
+ 	if (!was_active && active)
+ 		clear_base_frame_data(video);
+ 	if (!raw_was_active && raw_active)
+ 		clear_raw_frame_data(video);
+-#ifdef _WIN32
+ 	if (!gpu_was_active && gpu_active)
+ 		clear_gpu_frame_data(video);
+ 
+ 	video->gpu_was_active = gpu_active;
+-#endif
+ 	video->raw_was_active = raw_active;
+ 	video->was_active = active;
+ }
+diff --git a/libobs/obs.c b/libobs/obs.c
+index 1850ecc..1e57f25 100644
+--- a/libobs/obs.c
++++ b/libobs/obs.c
+@@ -179,7 +179,6 @@ static bool obs_init_gpu_conversion(struct obs_core_video_mix *video)
+ 	video->convert_textures[0] = NULL;
+ 	video->convert_textures[1] = NULL;
+ 	video->convert_textures[2] = NULL;
+-#ifdef _WIN32
+ 	video->convert_textures_encode[0] = NULL;
+ 	video->convert_textures_encode[1] = NULL;
+ 	video->convert_textures_encode[2] = NULL;
+@@ -200,7 +199,6 @@ static bool obs_init_gpu_conversion(struct obs_core_video_mix *video)
+ 			return false;
+ 		}
+ 	}
+-#endif
+ 
+ 	bool success = true;
+ 
+@@ -297,13 +295,11 @@ static bool obs_init_gpu_conversion(struct obs_core_video_mix *video)
+ 				gs_texture_destroy(video->convert_textures[c]);
+ 				video->convert_textures[c] = NULL;
+ 			}
+-#ifdef _WIN32
+ 			if (video->convert_textures_encode[c]) {
+ 				gs_texture_destroy(
+ 					video->convert_textures_encode[c]);
+ 				video->convert_textures_encode[c] = NULL;
+ 			}
+-#endif
+ 		}
+ 	}
+ 
+@@ -817,12 +813,10 @@ static void obs_free_render_textures(struct obs_core_video_mix *video)
+ 			gs_texture_destroy(video->convert_textures[c]);
+ 			video->convert_textures[c] = NULL;
+ 		}
+-#ifdef _WIN32
+ 		if (video->convert_textures_encode[c]) {
+ 			gs_texture_destroy(video->convert_textures_encode[c]);
+ 			video->convert_textures_encode[c] = NULL;
+ 		}
+-#endif
+ 	}
+ 
+ 	gs_texture_destroy(video->output_texture);
+-- 
+2.41.0
+

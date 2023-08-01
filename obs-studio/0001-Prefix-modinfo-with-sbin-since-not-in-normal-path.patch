@@ -1,0 +1,25 @@
+From c465c8bf5860a0b8f9a644cbf3c6b5e08ec9450d Mon Sep 17 00:00:00 2001
+From: Jimmy Berry <jimmy@boombatower.com>
+Date: Fri, 18 Jun 2021 17:31:56 -0500
+Subject: [PATCH 1/2] Prefix modinfo with /sbin since not in normal path.
+
+---
+ plugins/linux-v4l2/v4l2-output.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/plugins/linux-v4l2/v4l2-output.c b/plugins/linux-v4l2/v4l2-output.c
+index 05ac70b42..d48088ad4 100644
+--- a/plugins/linux-v4l2/v4l2-output.c
++++ b/plugins/linux-v4l2/v4l2-output.c
+@@ -86,7 +86,7 @@ bool loopback_module_available()
+ 		return true;
+ 	}
+ 
+-	if (run_command("modinfo v4l2loopback >/dev/null 2>&1") == 0) {
++	if (run_command("/sbin/modinfo v4l2loopback >/dev/null 2>&1") == 0) {
+ 		return true;
+ 	}
+ 
+-- 
+2.31.1
+

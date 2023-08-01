@@ -1,0 +1,30 @@
+From 33d3c849e8e68f0d479548640202d2e8e7041396 Mon Sep 17 00:00:00 2001
+From: Kurt Kartaltepe <kkartaltepe@gmail.com>
+Date: Mon, 6 Feb 2023 21:13:59 -0800
+Subject: [PATCH 2/5] libobs-opengl: Enable imported dmabufs for rendering
+
+For now just tag all imported images with GS_RENDER, this may not work
+for some images that were produced by some hardware other than the gpu
+render engines. But since we dont import vaapi decoded frames we
+probably wont run into this. And we need this to render into vaapi
+frames destined for encoding.
+---
+ libobs-opengl/gl-egl-common.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/libobs-opengl/gl-egl-common.c b/libobs-opengl/gl-egl-common.c
+index f06cd19..e53f5a2 100644
+--- a/libobs-opengl/gl-egl-common.c
++++ b/libobs-opengl/gl-egl-common.c
+@@ -186,7 +186,7 @@ struct gs_texture *gl_egl_create_texture_from_eglimage(
+ 
+ 	struct gs_texture *texture = NULL;
+ 	texture = gs_texture_create(width, height, color_format, 1, NULL,
+-				    GS_GL_DUMMYTEX);
++				    GS_GL_DUMMYTEX | GS_RENDER_TARGET);
+ 	const GLuint gltex = *(GLuint *)gs_texture_get_obj(texture);
+ 
+ 	gl_bind_texture(GL_TEXTURE_2D, gltex);
+-- 
+2.41.0
+
