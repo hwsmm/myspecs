@@ -41,10 +41,6 @@
 %preamble_string ffmpeg-private-devel %comparator %conflicts_version \
 %nil
 
-%if 0%{?BUILD_ORIG}
-%bcond_without amf_sdk
-%bcond_without cuda_sdk
-%else
 # If software H264 is disabled, the hw driver must be as well:
 # HW drivers can fail to initialize, namely when the hardware is absent.
 # Browsers choose video formats on sites like youtube based on `ffmpeg
@@ -53,7 +49,6 @@
 # the browser thinks it can do H264 but never succeeds.
 %bcond_with    amf_sdk
 %bcond_with    cuda_sdk
-%endif
 %bcond_with    amrwb
 %bcond_with    fdk_aac_dlopen
 %bcond_with    opencore
