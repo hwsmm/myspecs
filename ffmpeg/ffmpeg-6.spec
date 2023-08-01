@@ -82,7 +82,7 @@
 
 Name:           ffmpeg-6
 Version:        6.0
-Release:        1699.4.pm.21
+Release:        1
 Summary:        Set of libraries for working with various multimedia formats
 License:        GPL-3.0-or-later
 Group:          Productivity/Multimedia/Video/Editors and Convertors

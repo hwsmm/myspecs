@@ -16,7 +16,7 @@
 
 Name:           obs-studio
 Version:        29.1.3
-Release:        1699.1.pm.8
+Release:        1
 Summary:        A recording/broadcasting program
 Group:          Productivity/Multimedia/Video/Editors and Convertors
 License:        GPL-2.0
