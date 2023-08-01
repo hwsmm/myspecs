@@ -190,6 +190,7 @@ cmake \
 %files
 %{_bindir}/obs
 %{_bindir}/obs-ffmpeg-mux
+%{_bindir}/obs-amf-test
 # Upstream forces libs dir regardless of arch and building plugins is encumbered
 # by moving them to the proper directory.
 %{_libdir}/obs-plugins/
