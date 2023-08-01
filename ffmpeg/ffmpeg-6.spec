@@ -535,7 +535,7 @@ break compatibility without any notice.
 %global _lto_cflags %_lto_cflags -ffat-lto-objects
 %endif
 CFLAGS="%optflags" \
-%if %suse_version > 1500
+%if 0%{?suse_version} > 1500
 %ifarch %ix86
 %else
 LDFLAGS="%_lto_cflags" \
