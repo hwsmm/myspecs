@@ -1,6 +1,12 @@
+%undefine _disable_source_fetch
 
 # Chromium Embedded Framework
+%ifarch x86_64
+%bcond_without cef
+%define cef_binary cef_binary_5060_linux64
+%else
 %bcond_with cef
+%endif
 
 %if 0%{?suse_version} > 1500
 %define qt_version 6
@@ -20,7 +26,7 @@ URL:            https://obsproject.com/
 # not included in the offical tarball (e.g. obs-browser)
 Source:         %{name}-%{version}.tar.xz
 %if %{with cef}
-Source17:       %{cef_binary}.tar.bz2
+Source17:       https://cdn-fastly.obsproject.com/downloads/%{cef_binary}.tar.bz2
 %endif
 Patch0:         0002-Include-diverse-luajit.patch
 Patch1:         0001-Prefix-modinfo-with-sbin-since-not-in-normal-path.patch
