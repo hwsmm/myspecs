@@ -15,7 +15,6 @@
 # Please submit bugfixes or comments via https://bugs.opensuse.org/
 #
 
-%define BUILD_ORIG 1
 
 %define flavor %{nil}
 %if "%{flavor}" != "ffmpeg-6-mini"
@@ -41,14 +40,20 @@
 %preamble_string ffmpeg-private-devel %comparator %conflicts_version \
 %nil
 
+%define BUILD_ORIG 1
+%if 0%{?BUILD_ORIG}
+%bcond_without amf_sdk
+%bcond_without cuda_sdk
+%else
 # If software H264 is disabled, the hw driver must be as well:
 # HW drivers can fail to initialize, namely when the hardware is absent.
 # Browsers choose video formats on sites like youtube based on `ffmpeg
 # -codecs` rather than the success/failure status of libav* initialization.
 # This becomes a problem when a format only has a HW driver;
 # the browser thinks it can do H264 but never succeeds.
-%bcond_without amf_sdk
+%bcond_with    amf_sdk
 %bcond_with    cuda_sdk
+%endif
 %bcond_with    amrwb
 %bcond_with    fdk_aac_dlopen
 %bcond_with    opencore
@@ -562,7 +567,7 @@ LDFLAGS="%_lto_cflags" \
 	--enable-libplacebo \
 %endif
 %if %{with amf}
-        --enable-amf \
+	--enable-amf \
 %endif
 %if !%{with cuda_sdk}
 	--disable-cuda-sdk \
