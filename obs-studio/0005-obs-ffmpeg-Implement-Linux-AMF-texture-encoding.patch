@@ -48,7 +48,7 @@ index 78b8c30..b29eef6 100644
  
  setup_plugin_target(obs-ffmpeg)
 diff --git a/plugins/obs-ffmpeg/texture-amf.cpp b/plugins/obs-ffmpeg/texture-amf.cpp
-index fe651f0..0f5ee7b 100644
+index 741adc0..f597511 100644
 --- a/plugins/obs-ffmpeg/texture-amf.cpp
 +++ b/plugins/obs-ffmpeg/texture-amf.cpp
 @@ -29,6 +29,15 @@
@@ -165,7 +165,7 @@ index fe651f0..0f5ee7b 100644
  	AMFComponentPtr amf_encoder;
  	AMFBufferPtr packet_data;
  	AMFRate amf_frame_rate;
-@@ -130,6 +215,9 @@ using buf_t = std::vector<uint8_t>;
+@@ -131,6 +216,9 @@ using buf_t = std::vector<uint8_t>;
  
  #ifdef _WIN32
  using d3dtex_t = ComPtr<ID3D11Texture2D>;
@@ -175,7 +175,7 @@ index fe651f0..0f5ee7b 100644
  
  struct amf_texencode : amf_base, public AMFSurfaceObserver {
  	volatile bool destroying = false;
-@@ -140,11 +228,92 @@ struct amf_texencode : amf_base, public AMFSurfaceObserver {
+@@ -141,11 +229,92 @@ struct amf_texencode : amf_base, public AMFSurfaceObserver {
  	std::vector<d3dtex_t> available_textures;
  	std::unordered_map<AMFSurface *, d3dtex_t> active_textures;
  
@@ -269,7 +269,7 @@ index fe651f0..0f5ee7b 100644
  
  	void AMF_STD_CALL OnSurfaceDataRelease(amf::AMFSurface *surf) override
  	{
-@@ -162,12 +331,189 @@ struct amf_texencode : amf_base, public AMFSurfaceObserver {
+@@ -163,12 +332,189 @@ struct amf_texencode : amf_base, public AMFSurfaceObserver {
  
  	void init() override
  	{
@@ -460,7 +460,7 @@ index fe651f0..0f5ee7b 100644
  
  struct amf_fallback : amf_base, public AMFSurfaceObserver {
  	volatile bool destroying = false;
-@@ -200,13 +546,7 @@ struct amf_fallback : amf_base, public AMFSurfaceObserver {
+@@ -201,13 +547,7 @@ struct amf_fallback : amf_base, public AMFSurfaceObserver {
  		if (res != AMF_OK)
  			throw amf_error("InitDX11 failed", res);
  #elif defined(__linux__)
@@ -475,7 +475,7 @@ index fe651f0..0f5ee7b 100644
  		if (res != AMF_OK)
  			throw amf_error("InitVulkan failed", res);
  #endif
-@@ -420,6 +760,361 @@ static void get_tex_from_handle(amf_texencode *enc, uint32_t handle,
+@@ -421,6 +761,361 @@ static void get_tex_from_handle(amf_texencode *enc, uint32_t handle,
  	*km_out = km.Detach();
  	*tex_out = tex.Detach();
  }
@@ -837,7 +837,7 @@ index fe651f0..0f5ee7b 100644
  #endif
  
  static constexpr amf_int64 macroblock_size = 16;
-@@ -756,6 +1451,197 @@ try {
+@@ -762,6 +1457,197 @@ try {
  }
  #endif
  
@@ -1035,7 +1035,7 @@ index fe651f0..0f5ee7b 100644
  static buf_t alloc_buf(amf_fallback *enc)
  {
  	buf_t buf;
-@@ -1016,6 +1902,8 @@ try {
+@@ -1022,6 +1908,8 @@ try {
  	if (res != AMF_OK)
  		throw amf_error("CreateContext failed", res);
  
@@ -1044,7 +1044,7 @@ index fe651f0..0f5ee7b 100644
  	enc->init();
  
  	const wchar_t *codec = nullptr;
-@@ -1449,7 +2337,6 @@ static void amf_avc_create_internal(amf_base *enc, obs_data_t *settings)
+@@ -1461,7 +2349,6 @@ static void amf_avc_create_internal(amf_base *enc, obs_data_t *settings)
  
  static void *amf_avc_create_texencode(obs_data_t *settings,
  				      obs_encoder_t *encoder)
@@ -1052,7 +1052,7 @@ index fe651f0..0f5ee7b 100644
  try {
  	check_texture_encode_capability(encoder, amf_codec_type::AVC);
  
-@@ -1457,8 +2344,10 @@ try {
+@@ -1469,8 +2356,10 @@ try {
  	enc->encoder = encoder;
  	enc->encoder_str = "texture-amf-h264";
  
@@ -1063,7 +1063,7 @@ index fe651f0..0f5ee7b 100644
  
  	amf_avc_create_internal(enc.get(), settings);
  	return enc.release();
-@@ -1472,12 +2361,6 @@ try {
+@@ -1484,12 +2373,6 @@ try {
  	blog(LOG_ERROR, "[texture-amf-h264] %s: %s", __FUNCTION__, err);
  	return obs_encoder_create_rerouted(encoder, "h264_fallback_amf");
  }
@@ -1076,15 +1076,15 @@ index fe651f0..0f5ee7b 100644
  
  static void *amf_avc_create_fallback(obs_data_t *settings,
  				     obs_encoder_t *encoder)
-@@ -1533,6 +2416,7 @@ static void register_avc()
- 	/* FIXME: Figure out why encoder does not survive reconfiguration
- 	amf_encoder_info.update = amf_avc_update; */
+@@ -1551,6 +2434,7 @@ static void register_avc()
+ 	amf_encoder_info.destroy = amf_destroy;
+ 	amf_encoder_info.update = amf_avc_update;
  	amf_encoder_info.encode_texture = amf_encode_tex;
 +	amf_encoder_info.encode_texture2 = amf_encode_tex2;
  	amf_encoder_info.get_defaults = amf_defaults;
  	amf_encoder_info.get_properties = amf_avc_properties;
  	amf_encoder_info.get_extra_data = amf_extra_data;
-@@ -1544,6 +2428,7 @@ static void register_avc()
+@@ -1562,6 +2446,7 @@ static void register_avc()
  	amf_encoder_info.caps = OBS_ENCODER_CAP_INTERNAL |
  				OBS_ENCODER_CAP_DYN_BITRATE;
  	amf_encoder_info.encode_texture = nullptr;
@@ -1092,7 +1092,7 @@ index fe651f0..0f5ee7b 100644
  	amf_encoder_info.create = amf_avc_create_fallback;
  	amf_encoder_info.encode = amf_encode_fallback;
  	amf_encoder_info.get_video_info = h264_video_info_fallback;
-@@ -1801,7 +2686,6 @@ static void amf_hevc_create_internal(amf_base *enc, obs_data_t *settings)
+@@ -1826,7 +2711,6 @@ static void amf_hevc_create_internal(amf_base *enc, obs_data_t *settings)
  
  static void *amf_hevc_create_texencode(obs_data_t *settings,
  				       obs_encoder_t *encoder)
@@ -1100,7 +1100,7 @@ index fe651f0..0f5ee7b 100644
  try {
  	check_texture_encode_capability(encoder, amf_codec_type::HEVC);
  
-@@ -1809,8 +2693,10 @@ try {
+@@ -1834,8 +2718,10 @@ try {
  	enc->encoder = encoder;
  	enc->encoder_str = "texture-amf-h265";
  
@@ -1111,7 +1111,7 @@ index fe651f0..0f5ee7b 100644
  
  	amf_hevc_create_internal(enc.get(), settings);
  	return enc.release();
-@@ -1824,12 +2710,6 @@ try {
+@@ -1849,12 +2735,6 @@ try {
  	blog(LOG_ERROR, "[texture-amf-h265] %s: %s", __FUNCTION__, err);
  	return obs_encoder_create_rerouted(encoder, "h265_fallback_amf");
  }
@@ -1124,15 +1124,15 @@ index fe651f0..0f5ee7b 100644
  
  static void *amf_hevc_create_fallback(obs_data_t *settings,
  				      obs_encoder_t *encoder)
-@@ -1881,6 +2761,7 @@ static void register_hevc()
- 	/* FIXME: Figure out why encoder does not survive reconfiguration
- 	amf_encoder_info.update = amf_hevc_update; */
+@@ -1912,6 +2792,7 @@ static void register_hevc()
+ 	amf_encoder_info.destroy = amf_destroy;
+ 	amf_encoder_info.update = amf_hevc_update;
  	amf_encoder_info.encode_texture = amf_encode_tex;
 +	amf_encoder_info.encode_texture2 = amf_encode_tex2;
  	amf_encoder_info.get_defaults = amf_defaults;
  	amf_encoder_info.get_properties = amf_hevc_properties;
  	amf_encoder_info.get_extra_data = amf_extra_data;
-@@ -1892,6 +2773,7 @@ static void register_hevc()
+@@ -1923,6 +2804,7 @@ static void register_hevc()
  	amf_encoder_info.caps = OBS_ENCODER_CAP_INTERNAL |
  				OBS_ENCODER_CAP_DYN_BITRATE;
  	amf_encoder_info.encode_texture = nullptr;
@@ -1140,7 +1140,7 @@ index fe651f0..0f5ee7b 100644
  	amf_encoder_info.create = amf_hevc_create_fallback;
  	amf_encoder_info.encode = amf_encode_fallback;
  	amf_encoder_info.get_video_info = h265_video_info_fallback;
-@@ -2110,7 +2992,6 @@ static void amf_av1_create_internal(amf_base *enc, obs_data_t *settings)
+@@ -2149,7 +3031,6 @@ static void amf_av1_create_internal(amf_base *enc, obs_data_t *settings)
  
  static void *amf_av1_create_texencode(obs_data_t *settings,
  				      obs_encoder_t *encoder)
@@ -1148,7 +1148,7 @@ index fe651f0..0f5ee7b 100644
  try {
  	check_texture_encode_capability(encoder, amf_codec_type::AV1);
  
-@@ -2118,8 +2999,10 @@ try {
+@@ -2157,8 +3038,10 @@ try {
  	enc->encoder = encoder;
  	enc->encoder_str = "texture-amf-av1";
  
@@ -1159,7 +1159,7 @@ index fe651f0..0f5ee7b 100644
  
  	amf_av1_create_internal(enc.get(), settings);
  	return enc.release();
-@@ -2133,12 +3016,6 @@ try {
+@@ -2172,12 +3055,6 @@ try {
  	blog(LOG_ERROR, "[texture-amf-av1] %s: %s", __FUNCTION__, err);
  	return obs_encoder_create_rerouted(encoder, "av1_fallback_amf");
  }
@@ -1172,15 +1172,15 @@ index fe651f0..0f5ee7b 100644
  
  static void *amf_av1_create_fallback(obs_data_t *settings,
  				     obs_encoder_t *encoder)
-@@ -2200,6 +3077,7 @@ static void register_av1()
- 	/* FIXME: Figure out why encoder does not survive reconfiguration
- 	amf_encoder_info.update = amf_av1_update; */
+@@ -2245,6 +3122,7 @@ static void register_av1()
+ 	amf_encoder_info.destroy = amf_destroy;
+ 	amf_encoder_info.update = amf_av1_update;
  	amf_encoder_info.encode_texture = amf_encode_tex;
 +	amf_encoder_info.encode_texture2 = amf_encode_tex2;
  	amf_encoder_info.get_defaults = amf_av1_defaults;
  	amf_encoder_info.get_properties = amf_av1_properties;
  	amf_encoder_info.get_extra_data = amf_extra_data;
-@@ -2211,6 +3089,7 @@ static void register_av1()
+@@ -2256,6 +3134,7 @@ static void register_av1()
  	amf_encoder_info.caps = OBS_ENCODER_CAP_INTERNAL |
  				OBS_ENCODER_CAP_DYN_BITRATE;
  	amf_encoder_info.encode_texture = nullptr;
@@ -1189,5 +1189,5 @@ index fe651f0..0f5ee7b 100644
  	amf_encoder_info.encode = amf_encode_fallback;
  	amf_encoder_info.get_video_info = av1_video_info_fallback;
 -- 
-2.41.0
+2.17.1
 
