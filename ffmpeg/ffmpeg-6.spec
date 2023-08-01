@@ -705,7 +705,8 @@ done
 
 %install
 b="%buildroot"
-%make_install install-man
+%make_install
+DESTDIR="%buildroot" make install-man
 rm -Rf "$b/%_datadir/ffmpeg/examples"
 for i in %extratools; do
 	cp -a "tools/$i" "$b/%_bindir/"
