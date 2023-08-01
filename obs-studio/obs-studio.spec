@@ -1,4 +1,3 @@
-%undefine _disable_source_fetch
 
 # Chromium Embedded Framework
 %ifarch x86_64
@@ -26,7 +25,7 @@ URL:            https://obsproject.com/
 # not included in the offical tarball (e.g. obs-browser)
 Source:         %{name}-%{version}.tar.xz
 %if %{with cef}
-Source17:       https://cdn-fastly.obsproject.com/downloads/%{cef_binary}.tar.bz2
+BuildRequires:  wget
 %endif
 Patch0:         0002-Include-diverse-luajit.patch
 Patch1:         0001-Prefix-modinfo-with-sbin-since-not-in-normal-path.patch
@@ -133,7 +132,8 @@ Open Broadcaster Software is free and open source software for video recording a
 %prep
 %autosetup -p1
 %if %{with cef}
-tar xvf %{SOURCE17} -C %{_builddir}
+wget -O %{_sourcedir}/%{cef_binary}.tar.bz2 https://cdn-fastly.obsproject.com/downloads/%{cef_binary}.tar.bz2
+tar xvf %{_sourcedir}/%{cef_binary}.tar.bz2 -C %{_builddir}
 %endif
 
 %build
